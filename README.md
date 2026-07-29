@@ -56,30 +56,15 @@ The implementation in this repository is designed for the modern provider API an
 
 ---
 
-## Download
-
-Download the latest Windows release ZIP from the repository’s **Releases** page.
-
-The current release is:
-
-```text
-v1.5.0
-```
-
-Extract the ZIP to a permanent folder, for example:
-
-```text
-C:\MAL-Plex-Provider
-```
-
-Do not run the application directly from inside the ZIP archive.
-
----
-
 ## Quick installation
 
 1. Download the latest Windows release ZIP.
-2. Extract the complete folder.
+2. Extract the ZIP to a permanent folder, for example:
+
+```text
+C:\MAL-Plex-Provider-Windows
+```
+
 3. Right-click `INSTALL_AND_START.bat`.
 4. Select **Run as administrator**.
 5. Wait for the health check to complete.
