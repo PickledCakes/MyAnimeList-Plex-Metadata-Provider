@@ -238,27 +238,6 @@ This setting does not convert the MAL score into a TMDB or IMDb score.
 
 ---
 
-## Voice-actor selection
-
-For each character, the provider uses the following process:
-
-1. Find voice actors listed for the character.
-2. Look for an actor matching `voice_actor_language`.
-3. Use that actor when available.
-4. When no preferred-language actor exists and `voice_actor_fallback` is enabled, use the first available actor.
-5. When fallback is disabled, omit that cast entry if no preferred-language actor exists.
-
-Default behaviour:
-
-```json
-"voice_actor_language": "Japanese",
-"voice_actor_fallback": true
-```
-
-This means Japanese actors are preferred, while characters without Japanese cast data can still appear using another available voice actor.
-
----
-
 ## Included files
 
 ### End-user files
