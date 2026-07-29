@@ -1,5 +1,6 @@
 {
   "title_language": "default",
+  "episode_title_language": "default",
   "voice_actor_language": "Japanese",
   "voice_actor_fallback": true,
   "cast_image": "character",
@@ -11,76 +12,11 @@
   "include_themes": true,
   "include_demographics": true,
   "include_studios": true,
+  "include_episode_synopses": true,
+  "episode_synopsis_fallback_requests": false,
+  "include_episode_scores": true,
   "include_additional_posters": true,
   "poster_as_square_art": true,
   "include_background": false,
-  "rating_source": "tmdb",
-
-  "_help": {
-    "note": "Lines inside _help are documentation only. The provider ignores them. Keep text values inside double quotes and do not remove commas between entries.",
-    "title_language": {
-      "possible_values": ["default", "English", "Japanese"],
-      "description": "Preferred series title. If unavailable, the provider automatically falls back to another available title."
-    },
-    "voice_actor_language": {
-      "possible_values": ["Japanese", "English", "French", "German", "Italian", "Spanish", "Portuguese", "Korean", "Mandarin", "Hebrew", "Hungarian"],
-      "description": "Preferred voice-actor language exactly as MAL reports it. Japanese is recommended for anime. Other MAL language labels may also work."
-    },
-    "voice_actor_fallback": {
-      "possible_values": [true, false],
-      "description": "When true, use the first available voice actor if nobody is listed in the preferred language."
-    },
-    "cast_image": {
-      "possible_values": ["character", "voice actor"],
-      "description": "Choose whether Plex cast thumbnails use the anime character image or the voice actor photo."
-    },
-    "include_cast": {
-      "possible_values": [true, false],
-      "description": "Import character and voice-actor cast entries."
-    },
-    "include_directors": {
-      "possible_values": [true, false],
-      "description": "Import staff recognised as directors."
-    },
-    "include_writers": {
-      "possible_values": [true, false],
-      "description": "Import staff recognised as writers or script staff."
-    },
-    "include_producers": {
-      "possible_values": [true, false],
-      "description": "Import staff recognised as producers."
-    },
-    "include_genres": {
-      "possible_values": [true, false],
-      "description": "Import MAL genres."
-    },
-    "include_themes": {
-      "possible_values": [true, false],
-      "description": "Import MAL themes into Plex genres."
-    },
-    "include_demographics": {
-      "possible_values": [true, false],
-      "description": "Import MAL demographics such as Shounen or Seinen into Plex genres."
-    },
-    "include_studios": {
-      "possible_values": [true, false],
-      "description": "Import animation studios."
-    },
-    "include_additional_posters": {
-      "possible_values": [true, false],
-      "description": "Add all additional MAL pictures to Plex's Poster picker."
-    },
-    "poster_as_square_art": {
-      "possible_values": [true, false],
-      "description": "Use the default MAL poster as Plex Square Art."
-    },
-    "include_background": {
-      "possible_values": [true, false],
-      "description": "Background download is currently intentionally unsupported. Leave false to let Plex use its gradient."
-    },
-    "rating_source": {
-      "possible_values": ["tmdb", "imdb"],
-      "description": "Controls which badge Plex displays beside the MAL score. The numeric score still comes from MAL."
-    }
-  }
+  "rating_source": "tmdb"
 }

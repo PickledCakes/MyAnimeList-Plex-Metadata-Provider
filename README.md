@@ -15,11 +15,15 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 
 - MyAnimeList anime search and matching
 - Default, English, or Japanese series titles
+- Original Japanese series title where supported by Plex
 - Anime synopsis
 - MAL score
 - Release date and year
 - Content rating
 - Episode titles
+- Configurable default, English, Japanese, or romanji episode titles
+- Episode synopses when available
+- Episode scores converted from MAL’s 5-point scale to Plex’s 10-point scale
 - Episode air dates
 - Episode runtime
 - Genres
@@ -212,6 +216,7 @@ Settings are read when the provider starts. Editing the file while the provider 
 | Setting | Default | Accepted values | Description |
 |---|---:|---|---|
 | `title_language` | `"default"` | `"default"`, `"english"`, `"japanese"` | Selects which MyAnimeList title is used as the main Plex series title. `default` normally uses the primary romanised MAL title. |
+| `episode_title_language` | `"default"` | `"default"`, `"english"`, `"japanese"`, `"romanji"` | Selects which Tenrai/MAL episode title is used in Plex. Falls back to another available title when the preferred language is unavailable. |
 | `voice_actor_language` | `"Japanese"` | `"Japanese"`, `"English"`, `"French"`, `"German"`, `"Spanish"`, `"Italian"`, `"Portuguese"`, `"Korean"`, `"Mandarin"` | Selects the preferred voice-actor language. Japanese is used by default. |
 | `voice_actor_fallback` | `true` | `true`, `false` | When enabled, the first available voice actor is used when no actor exists in the preferred language. |
 | `cast_image` | `"character"` | `"character"`, `"voice actor"` | Selects whether Plex cast thumbnails display the anime character image or the voice actor’s profile image. |
@@ -235,6 +240,14 @@ MAL staff positions are not always standardised. Some people may not be imported
 | `include_themes` | `true` | `true`, `false` | Imports MAL themes such as School, Music, or Historical as Plex genres. |
 | `include_demographics` | `true` | `true`, `false` | Imports demographics such as Shounen, Shoujo, Seinen, or Josei as Plex genres. |
 | `include_studios` | `true` | `true`, `false` | Imports the anime studio into the Plex Studio field. |
+
+### Episode settings
+
+| Setting | Default | Accepted values | Description |
+|---|---:|---|---|
+| `include_episode_synopses` | `true` | `true`, `false` | Imports episode synopsis text from Tenrai when available. |
+| `episode_synopsis_fallback_requests` | `false` | `true`, `false` | When enabled, requests each individual episode if the paginated episode record has no synopsis. This is disabled by default because Tenrai normally includes synopsis text in the episode list. |
+| `include_episode_scores` | `true` | `true`, `false` | Imports MAL episode scores. MAL’s 5-point value is doubled before being sent to Plex’s 10-point rating field. |
 
 ### Artwork settings
 
@@ -277,78 +290,65 @@ The score itself still comes from MyAnimeList.
 
 ```json
 {
-  "_help": {
-    "note": "The _help section is documentation and is ignored by the provider.",
-
-    "title_language": {
-      "possible_values": [
-        "default",
-        "english",
-        "japanese"
-      ]
-    },
-
-    "voice_actor_language": {
-      "possible_values": [
-        "Japanese",
-        "English",
-        "French",
-        "German",
-        "Spanish",
-        "Italian",
-        "Portuguese",
-        "Korean",
-        "Mandarin"
-      ]
-    },
-
-    "cast_image": {
-      "possible_values": [
-        "character",
-        "voice actor"
-      ]
-    },
-
-    "rating_source": {
-      "possible_values": [
-        "tmdb",
-        "imdb"
-      ]
-    },
-
-    "boolean_values": {
-      "possible_values": [
-        true,
-        false
-      ]
-    }
-  },
-
   "title_language": "default",
-
+  "episode_title_language": "default",
   "voice_actor_language": "Japanese",
   "voice_actor_fallback": true,
   "cast_image": "character",
   "include_cast": true,
-
   "include_directors": true,
   "include_writers": true,
   "include_producers": true,
-
   "include_genres": true,
   "include_themes": true,
   "include_demographics": true,
   "include_studios": true,
-
+  "include_episode_synopses": true,
+  "episode_synopsis_fallback_requests": false,
+  "include_episode_scores": true,
   "include_additional_posters": true,
   "poster_as_square_art": true,
   "include_background": false,
-
   "rating_source": "tmdb"
 }
 ```
 
-JSON does not support normal comments. The `_help` object provides documentation while keeping the settings file valid JSON.
+---
+
+
+## Episode metadata
+
+Episode titles can be selected independently from the main series title using:
+
+```json
+"episode_title_language": "default"
+```
+
+Accepted values are:
+
+```text
+default
+english
+japanese
+romanji
+```
+
+The provider imports episode synopsis text directly from Tenrai’s paginated episode response when available.
+
+Individual episode fallback requests are disabled by default:
+
+```json
+"episode_synopsis_fallback_requests": false
+```
+
+This avoids one additional API request for every episode without a synopsis. Enable it only when testing incomplete episode records.
+
+MAL episode ratings use a five-point scale. The provider converts them to Plex’s ten-point scale:
+
+```text
+MAL 4.6 / 5 → Plex 9.2 / 10
+```
+
 
 ---
 
@@ -602,6 +602,19 @@ For Square Art, also confirm that this setting is enabled:
 
 ---
 
+### Episode synopsis or score does not appear
+
+Confirm these settings are enabled:
+
+```json
+"include_episode_synopses": true,
+"include_episode_scores": true
+```
+
+Then restart the provider and refresh the series metadata in Plex. Existing cached episode metadata may require unmatching and matching the series again.
+
+---
+
 ### The provider does not start after a server restart
 
 Run `REGISTER_STARTUP.bat` as administrator.
@@ -669,6 +682,7 @@ Check `logs\provider.log` while refreshing the series.
 - MAL does not provide purpose-built Plex Square Art, so the default poster is reused.
 - Staff-role names do not always map cleanly to Plex’s Director, Writer, and Producer fields.
 - Different Plex clients may use artwork and rating fields differently.
+- Original Japanese titles may not be displayed by every Plex client.
 - The provider currently targets TV and anime libraries rather than movie libraries.
 
 ---

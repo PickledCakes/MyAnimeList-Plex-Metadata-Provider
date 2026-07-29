@@ -15,7 +15,7 @@ from waitress import serve
 
 PROVIDER_ID = "tv.plex.agents.custom.pickledcakes.myanimelist.tv"
 PROVIDER_TITLE = "MyAnimeList via Tenrai (PoC)"
-VERSION = "1.5.0"
+VERSION = "1.7.1"
 ROOT_PATH = "/tv"
 
 
@@ -69,6 +69,10 @@ SETTINGS = load_json_file("settings.json", {
     "include_themes": True,
     "include_demographics": True,
     "include_studios": True,
+    "episode_title_language": "default",
+    "include_episode_synopses": True,
+    "episode_synopsis_fallback_requests": False,
+    "include_episode_scores": True,
     "include_additional_posters": True,
     "poster_as_square_art": True,
     "include_background": False,
@@ -90,6 +94,12 @@ INCLUDE_GENRES = bool_setting(SETTINGS.get("include_genres"), True)
 INCLUDE_THEMES = bool_setting(SETTINGS.get("include_themes"), True)
 INCLUDE_DEMOGRAPHICS = bool_setting(SETTINGS.get("include_demographics"), True)
 INCLUDE_STUDIOS = bool_setting(SETTINGS.get("include_studios"), True)
+EPISODE_TITLE_LANGUAGE = str(SETTINGS.get("episode_title_language", "default")).strip().casefold()
+INCLUDE_EPISODE_SYNOPSES = bool_setting(SETTINGS.get("include_episode_synopses"), True)
+EPISODE_SYNOPSIS_FALLBACK_REQUESTS = bool_setting(
+    SETTINGS.get("episode_synopsis_fallback_requests"), False
+)
+INCLUDE_EPISODE_SCORES = bool_setting(SETTINGS.get("include_episode_scores"), True)
 INCLUDE_ADDITIONAL_PICTURES = bool_setting(SETTINGS.get("include_additional_posters"), True)
 POSTER_AS_SQUARE_ART = bool_setting(SETTINGS.get("poster_as_square_art"), True)
 INCLUDE_BACKGROUND = bool_setting(SETTINGS.get("include_background"), False)
@@ -107,6 +117,7 @@ log = logging.getLogger("mal-provider")
 app = Flask(__name__)
 session = requests.Session()
 session.headers.update({"User-Agent": f"MAL-Plex-Provider/{VERSION}"})
+EPISODE_DETAIL_CACHE: dict[tuple[int, int], dict[str, Any]] = {}
 
 
 class ProviderError(RuntimeError):
@@ -170,6 +181,42 @@ def title_for(anime: dict[str, Any]) -> str:
                 ):
                     return str(item["title"])
     return str(anime.get("title") or anime.get("title_english") or anime.get("title_japanese") or "Unknown")
+
+
+def original_japanese_title(anime: dict[str, Any]) -> str | None:
+    value = anime.get("title_japanese")
+    if value:
+        return str(value)
+    titles = anime.get("titles")
+    if isinstance(titles, list):
+        for item in titles:
+            if (
+                isinstance(item, dict)
+                and str(item.get("type") or "").casefold() == "japanese"
+                and item.get("title")
+            ):
+                return str(item["title"])
+    return None
+
+
+def episode_title_for(episode: dict[str, Any], number: int) -> str:
+    language = EPISODE_TITLE_LANGUAGE
+    field_orders = {
+        "english": ("title", "title_english", "title_romanji", "title_japanese"),
+        "japanese": ("title_japanese", "title", "title_romanji", "title_english"),
+        "romanji": ("title_romanji", "title", "title_english", "title_japanese"),
+        "romaji": ("title_romanji", "title", "title_english", "title_japanese"),
+        "default": ("title", "title_english", "title_romanji", "title_japanese"),
+    }
+    for field in field_orders.get(language, field_orders["default"]):
+        value = episode.get(field)
+        if value:
+            return str(value)
+    return f"Episode {number}"
+
+
+def rating_image() -> str:
+    return "imdb://image.rating" if RATING_SOURCE == "imdb" else "themoviedb://image.rating"
 
 
 def aired_date(anime: dict[str, Any]) -> str:
@@ -267,6 +314,7 @@ def show_metadata(anime: dict[str, Any], include_children: bool = False, include
         "guid": guid_for(show_key(mal_id)),
         "type": "show",
         "title": title,
+        "originalTitle": original_japanese_title(anime),
         "originallyAvailableAt": release,
         "year": int(release[:4]),
         "summary": anime.get("synopsis") or "",
@@ -289,7 +337,7 @@ def show_metadata(anime: dict[str, Any], include_children: bool = False, include
     }
     score = anime.get("score")
     if score is not None:
-        item["Rating"] = [{"image": ("imdb://image.rating" if RATING_SOURCE == "imdb" else "themoviedb://image.rating"), "type": "audience", "value": float(score)}]
+        item["Rating"] = [{"image": rating_image(), "type": "audience", "value": float(score)}]
     item = {k: v for k, v in item.items() if v is not None}
     if include_credits and (INCLUDE_CAST or INCLUDE_DIRECTORS or INCLUDE_WRITERS or INCLUDE_PRODUCERS):
         credits = get_show_credits(mal_id)
@@ -332,21 +380,72 @@ def season_metadata(anime: dict[str, Any], season: int = 1, include_children: bo
     }
     if include_children:
         episodes = get_all_episodes(mal_id)
-        item["Children"] = {"size": len(episodes), "Metadata": [episode_metadata(anime, ep) for ep in episodes]}
+        item["Children"] = {"size": len(episodes), "Metadata": [episode_metadata(anime, ep, fetch_synopsis=True) for ep in episodes]}
     return {k: v for k, v in item.items() if v is not None}
 
 
-def episode_metadata(anime: dict[str, Any], episode: dict[str, Any], season: int = 1) -> dict[str, Any]:
+def get_episode_detail(mal_id: int, number: int) -> dict[str, Any]:
+    """Fetch and cache one MAL episode record.
+
+    Tenrai normally includes synopsis, score and multilingual titles in the
+    paginated episode response. This endpoint is retained only as an optional
+    compatibility fallback for incomplete records.
+    """
+    cache_key = (mal_id, number)
+    if cache_key in EPISODE_DETAIL_CACHE:
+        return EPISODE_DETAIL_CACHE[cache_key]
+
+    try:
+        detail = first_data(api_get(f"/anime/{mal_id}/episodes/{number}"))
+    except ProviderError as exc:
+        log.warning(
+            "Optional episode synopsis request failed for MAL %s episode %s: %s",
+            mal_id,
+            number,
+            exc,
+        )
+        detail = {}
+
+    EPISODE_DETAIL_CACHE[cache_key] = detail
+    return detail
+
+
+def episode_metadata(
+    anime: dict[str, Any],
+    episode: dict[str, Any],
+    season: int = 1,
+    fetch_synopsis: bool = False,
+) -> dict[str, Any]:
     mal_id = int(anime["mal_id"])
     number = int(episode.get("mal_id") or episode.get("episode") or 0)
     show_title = title_for(anime)
     date = parse_date(episode.get("aired")) or aired_date(anime)
-    return {
+
+    synopsis = episode.get("synopsis") or episode.get("summary") or ""
+    if (
+        INCLUDE_EPISODE_SYNOPSES
+        and EPISODE_SYNOPSIS_FALLBACK_REQUESTS
+        and fetch_synopsis
+        and not synopsis
+        and number > 0
+    ):
+        detail = get_episode_detail(mal_id, number)
+        synopsis = detail.get("synopsis") or detail.get("summary") or ""
+        # Individual episode records may contain a better title/date as well.
+        if detail:
+            episode = {**episode, **detail}
+        detail_date = parse_date(detail.get("aired"))
+        if detail_date:
+            date = detail_date
+
+    item = {
         "ratingKey": episode_key(mal_id, number, season),
         "key": f"/library/metadata/{episode_key(mal_id, number, season)}",
         "guid": guid_for(episode_key(mal_id, number, season)),
         "type": "episode",
-        "title": episode.get("title") or f"Episode {number}",
+        "title": episode_title_for(episode, number),
+        "originalTitle": episode.get("title_japanese") or None,
+        "summary": synopsis,
         "index": number,
         "originallyAvailableAt": date,
         "year": int(date[:4]),
@@ -361,6 +460,34 @@ def episode_metadata(anime: dict[str, Any], episode: dict[str, Any], season: int
         "grandparentType": "show",
         "grandparentTitle": show_title,
     }
+    raw_episode_score = episode.get("score")
+    if INCLUDE_EPISODE_SCORES and raw_episode_score is not None:
+        try:
+            score_value = float(raw_episode_score)
+            # MAL episode votes are presented on a five-point scale. Plex
+            # audience ratings are sent on a ten-point scale for consistency.
+            if 0.0 <= score_value <= 5.0:
+                item["Rating"] = [{
+                    "image": rating_image(),
+                    "type": "audience",
+                    "value": round(score_value * 2.0, 1),
+                }]
+            else:
+                log.warning(
+                    "Ignoring unexpected episode score scale for MAL %s episode %s: %s",
+                    mal_id,
+                    number,
+                    raw_episode_score,
+                )
+        except (TypeError, ValueError):
+            log.warning(
+                "Ignoring invalid episode score for MAL %s episode %s: %r",
+                mal_id,
+                number,
+                raw_episode_score,
+            )
+
+    return {k: v for k, v in item.items() if v is not None}
 
 
 def get_anime(mal_id: int) -> dict[str, Any]:
@@ -602,7 +729,7 @@ def matches():
         number = int(body.get("index") or 0)
         episodes = get_all_episodes(int(anime["mal_id"]))
         episode = next((x for x in episodes if int(x.get("mal_id") or 0) == number), {"mal_id": number, "title": f"Episode {number}"})
-        return jsonify(metadata_container([episode_metadata(anime, episode, season)]))
+        return jsonify(metadata_container([episode_metadata(anime, episode, season, fetch_synopsis=True)]))
     return jsonify(metadata_container([]))
 
 
@@ -621,7 +748,7 @@ def metadata(rating_key: str):
         else:
             eps = get_all_episodes(mal_id)
             ep = next((x for x in eps if int(x.get("mal_id") or 0) == int(episode or 0)), {"mal_id": episode or 0, "title": f"Episode {episode}"})
-            item = episode_metadata(anime, ep, season or 1)
+            item = episode_metadata(anime, ep, season or 1, fetch_synopsis=True)
         return jsonify(metadata_container([item]))
     except ProviderError as exc:
         log.exception("Metadata failed")
@@ -638,7 +765,7 @@ def children(rating_key: str):
         if kind == "show":
             items = [season_metadata(anime, 1, False)]
         elif kind == "season":
-            items = [episode_metadata(anime, ep, season or 1) for ep in get_all_episodes(mal_id)]
+            items = [episode_metadata(anime, ep, season or 1, fetch_synopsis=True) for ep in get_all_episodes(mal_id)]
         else:
             items = []
         start = int(request.args.get("X-Plex-Container-Start", request.headers.get("X-Plex-Container-Start", 0)))
@@ -657,7 +784,7 @@ def grandchildren(rating_key: str):
         if kind != "show":
             return jsonify(metadata_container([]))
         anime = get_anime(mal_id)
-        items = [episode_metadata(anime, ep, 1) for ep in get_all_episodes(mal_id)]
+        items = [episode_metadata(anime, ep, 1, fetch_synopsis=True) for ep in get_all_episodes(mal_id)]
         start = int(request.args.get("X-Plex-Container-Start", request.headers.get("X-Plex-Container-Start", 0)))
         size = int(request.args.get("X-Plex-Container-Size", request.headers.get("X-Plex-Container-Size", 20)))
         return jsonify(metadata_container(items[start:start + size], start, len(items)))
@@ -669,8 +796,19 @@ def grandchildren(rating_key: str):
 @app.get("/tv/tv/library/metadata/<rating_key>/extras")
 @app.get(f"{ROOT_PATH}/library/metadata/<rating_key>/extras")
 def extras(rating_key: str):
-    # No extras are supplied, but Plex probes this endpoint during refresh.
-    return jsonify(metadata_container([]))
+    # Plex currently probes this endpoint, but public custom-provider guidance
+    # says remote extras are not yet officially supported. Return Tenrai trailer
+    # candidates experimentally so future PMS versions can consume them without
+    # another provider update.
+    try:
+        kind, mal_id, _, _ = parse_key(rating_key)
+        if kind != "show":
+            return jsonify(metadata_container([]))
+        items = get_experimental_trailers(mal_id)
+        log.info("Experimental extras for MAL %s: %d candidate(s)", mal_id, len(items))
+        return jsonify(metadata_container(items))
+    except ProviderError as exc:
+        return jsonify({"error": str(exc)}), 404
 
 
 @app.get("/library/metadata/<rating_key>/images")
@@ -731,6 +869,8 @@ if __name__ == "__main__":
     log.info("Loaded user settings from: %s", app_dir() / "settings.json")
     log.info("Title: %s | Voice actors: %s | Fallback: %s | Cast image: %s", PREFERRED_TITLE, PREFERRED_VOICE_LANGUAGE, VOICE_ACTOR_FALLBACK, CAST_IMAGE)
     log.info("Cast=%s Directors=%s Writers=%s Producers=%s", INCLUDE_CAST, INCLUDE_DIRECTORS, INCLUDE_WRITERS, INCLUDE_PRODUCERS)
-    log.info("Genres=%s Themes=%s Demographics=%s Studios=%s Additional posters=%s", INCLUDE_GENRES, INCLUDE_THEMES, INCLUDE_DEMOGRAPHICS, INCLUDE_STUDIOS, INCLUDE_ADDITIONAL_PICTURES)
+    log.info("Genres=%s Themes=%s Demographics=%s Studios=%s", INCLUDE_GENRES, INCLUDE_THEMES, INCLUDE_DEMOGRAPHICS, INCLUDE_STUDIOS)
+    log.info("Episode titles=%s | Synopses=%s | Fallback requests=%s | Scores=%s", EPISODE_TITLE_LANGUAGE, INCLUDE_EPISODE_SYNOPSES, EPISODE_SYNOPSIS_FALLBACK_REQUESTS, INCLUDE_EPISODE_SCORES)
+    log.info("Additional posters=%s", INCLUDE_ADDITIONAL_PICTURES)
     log.info("Square art from poster=%s | Background=%s | Rating badge=%s", POSTER_AS_SQUARE_ART, INCLUDE_BACKGROUND, RATING_SOURCE)
     serve(app, host="0.0.0.0", port=PORT, threads=8)
