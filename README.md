@@ -464,45 +464,35 @@ Also verify that another application is not already using port `4567`.
 
 ---
 
-### Metadata does not update after changing settings
+### Metadata or artwork does not update after changing settings
 
-Settings are loaded only when the provider starts.
+Settings are loaded only when the provider starts, and Plex may continue using cached metadata or artwork even after the provider has changed what it returns.
 
 After editing `settings.json`:
 
-1. Stop the provider.
-2. Start it again.
-3. Refresh the series metadata in Plex.
-4. Fully close and reopen the Plex client when testing cached artwork.
+1. Save the file.
+2. Stop the provider.
+3. Start the provider again.
+4. Refresh the series metadata in Plex.
+5. Fully close and reopen Plex Web or the Plex app when testing cached artwork.
 
----
+If the old metadata or artwork is still present, Plex may not fully replace previously selected images during a normal metadata refresh.
 
-### Old artwork remains selected
+To force a complete metadata reset for that series:
 
-Plex may retain previously selected artwork even after the provider stops returning that image type.
+1. Open the series in Plex.
+2. Select **Unmatch**.
+3. Match the series again using your MAL metadata agent.
+4. Allow Plex to download the metadata and artwork again.
 
-Open:
+> [!IMPORTANT]
+> Plex does not currently provide a way to delete individual cached artwork images from the series artwork picker. Unmatching and matching the series again is the reliable way to reset all metadata and artwork for that series.
 
-```text
-Series → Edit → Poster / Background / Square Art
-```
-
-and manually select or remove the old artwork.
-
----
-
-### Square Art does not appear
-
-Confirm that:
+For Square Art, also confirm that this setting is enabled:
 
 ```json
 "poster_as_square_art": true
 ```
-
-Then restart the provider and refresh the series metadata.
-
-Plex may cache the artwork picker, so reopening Plex Web or the mobile application may also be necessary.
-
 ---
 
 ### The provider does not start after a server restart
