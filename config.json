@@ -1,0 +1,5 @@
+{
+  "port": 4567,
+  "api_base": "https://api.tenrai.org/v1",
+  "request_timeout_seconds": 20
+}
