@@ -97,21 +97,56 @@ The provider runs under the Windows `SYSTEM` account and does not require a user
 
 ## Adding the provider to Plex
 
-Open Plex Web and navigate to:
+1. Open **Plex Web**.
 
-```text
-Settings → Manage → Libraries
-```
+2. Go to:
 
-Create or edit a **TV Shows** library and add the following Custom Metadata Provider URL:
+   **Settings → Metadata Agents**
 
-```text
-http://127.0.0.1:4567/tv
-```
+3. Under **Custom Metadata Providers**, select **Add Provider**.
 
-Select the MyAnimeList provider for the library.
+4. Enter the provider URL:
 
-When changing to this provider, existing shows may need to be manually matched or have their metadata refreshed.
+   ```text
+   http://127.0.0.1:4567/tv
+   ```
+
+5. Save the provider.
+
+6. On the same **Metadata Agents** page, scroll down to the metadata agent configurations.
+
+7. Create a new metadata agent.
+
+8. Give it a name, for example:
+
+   ```text
+   MAL Agent
+   ```
+
+9. Set **Primary Agent** to:
+
+   ```text
+   MyAnimeList Plex Metadata Provider
+   ```
+
+10. Save the metadata agent.
+
+11. Go to:
+
+    **Settings → Manage → Libraries**
+
+12. Create or edit a **TV Shows** library.
+
+13. Select the metadata agent you created, for example:
+
+    ```text
+    MAL Agent
+    ```
+
+14. Save the library.
+
+> [!NOTE]
+> Existing shows previously matched with another metadata agent may need to be manually rematched or have their metadata refreshed before they use the MyAnimeList provider.
 
 ---
 
