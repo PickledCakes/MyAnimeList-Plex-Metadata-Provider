@@ -135,6 +135,54 @@ The provider runs under the Windows `SYSTEM` account and does not require a user
 > [!NOTE]
 > Existing shows previously matched with another metadata agent may need to be manually rematched or have their metadata refreshed before they use the MyAnimeList provider.
 
+
+---
+
+## Force matching with a MyAnimeList ID
+
+If Plex finds the wrong series, or a normal title search does not return the correct result, you can force the provider to match a specific MyAnimeList entry.
+
+Open the series in Plex, choose **Fix Match** or **Match**, and enter the MAL ID using this format:
+
+```text
+[mal-52991]
+```
+
+Replace `52991` with the series ID from its MyAnimeList URL.
+
+For example, this MyAnimeList URL:
+
+```text
+https://myanimelist.net/anime/52991/
+```
+
+uses:
+
+```text
+[mal-52991]
+```
+
+The provider also recognises these formats:
+
+```text
+mal-show-52991
+```
+
+```text
+myanimelist://52991
+```
+
+A bare number such as `52991` is not treated as a force-match request.
+
+You can also include the tag permanently in the series folder name:
+
+```text
+Sousou no Frieren [mal-52991]
+```
+
+This can help Plex identify the correct entry during future scans or rematches.
+
+
 ---
 
 ## Configuration
