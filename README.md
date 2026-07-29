@@ -496,38 +496,6 @@ dist\MALPlexProvider.exe
 
 ---
 
-## GitHub releases
-
-The included GitHub Actions workflow can build the Windows executable automatically.
-
-Create and push a version tag:
-
-```text
-v1.5.0
-```
-
-Example Git commands:
-
-```bash
-git tag v1.5.0
-git push origin v1.5.0
-```
-
-The workflow can then:
-
-1. Check out the repository.
-2. Install Python.
-3. Install the required packages.
-4. Build `MALPlexProvider.exe`.
-5. Assemble the Windows release folder.
-6. Create a release ZIP.
-7. Upload the ZIP as a workflow artifact.
-8. Attach the ZIP to the tagged GitHub release.
-
-Ordinary users should download the compiled release ZIP rather than cloning the source repository.
-
----
-
 ## Troubleshooting
 
 ### Plex cannot connect to the provider
