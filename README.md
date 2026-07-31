@@ -43,6 +43,7 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 - One-click Windows installation
 - Automatic startup using Windows Task Scheduler
 - Provider health checks and logging
+- Plex Local Media integration for local openings, endings, trailers, and other extras
 - Client-side Tenrai API rate limiting and automatic HTTP 429 retries
 
 ---
@@ -51,11 +52,11 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 
 - Plex Custom Metadata Provider support is still evolving, and behaviour can differ between Plex clients.
 - Ratings from custom providers can display correctly but may remain unavailable for library sorting.
-- Local TV extras are not reliably detected when this provider is used as the primary metadata agent.
-- Plex may ignore `Shorts`, `Other`, `Trailers`, and similar local-extra folders even when their structure follows Plex’s documented naming rules.
-- Adding Plex Personal Media or Plex Local Media as a secondary provider does not make ignored extra files appear, because file discovery happens before metadata providers are applied.
+- Local TV extras require **Plex Local Media** to be enabled as a secondary provider in the metadata-agent configuration.
+- Extras placed in supported folders such as `Shorts`, `Other`, `Trailers`, `Interviews`, or `Featurettes` are treated as local extras rather than normal episodes.
+- Files inside local-extra folders do not need `S00E##` names; descriptive or original filenames are acceptable.
 - The provider’s `/extras` endpoint intentionally returns an empty container. Remote YouTube trailers and other provider-supplied extras are not currently supported.
-- Files that must appear in Plex should be named as normal episodes or specials, such as `S00E01`, or exposed through Plex-compatible hardlinks.
+- Only files intended to appear as normal Plex **Specials** episodes need `S00E##` naming. Files in other supported extras folders do not.
 - MyAnimeList usually treats each sequel or season as a separate anime entry, while Plex normally groups seasons under one show. This provider follows the MyAnimeList model.
 - Openings, endings, creditless videos, interviews, and disc bonuses usually have no corresponding MyAnimeList episode record.
 - Plex may generate unrelated recommendations under Related Shows.
@@ -63,6 +64,7 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 - MyAnimeList does not provide purpose-built Plex Square Art, so the default poster is reused.
 - Staff-role names do not always map cleanly to Plex’s Director, Writer, and Producer fields.
 - Original Japanese titles may not be displayed by every Plex client.
+- The provider currently targets TV and anime libraries rather than movie libraries.
 
 
 ---
@@ -144,21 +146,36 @@ The provider runs under the Windows `SYSTEM` account and does not require a user
    MyAnimeList Plex Metadata Provider
    ```
 
-10. Save the metadata agent.
+10. Add **Plex Local Media** as a secondary provider beneath the MyAnimeList provider.
 
-11. Go to:
+    This is required for Plex to detect local show extras stored in supported folders such as:
+
+    ```text
+    Behind The Scenes
+    Deleted Scenes
+    Featurettes
+    Interviews
+    Scenes
+    Shorts
+    Trailers
+    Other
+    ```
+
+11. Save the metadata agent.
+
+12. Go to:
 
     **Settings → Manage → Libraries**
 
-12. Create or edit a **TV Shows** library.
+13. Create or edit a **TV Shows** library.
 
-13. Select the metadata agent you created, for example:
+14. Select the metadata agent you created, for example:
 
     ```text
     MAL Agent
     ```
 
-14. Save the library.
+15. Save the library.
 
 > [!NOTE]
 > Existing shows previously matched with another metadata agent may need to be manually rematched or have their metadata refreshed before they use the MyAnimeList provider.
@@ -620,29 +637,52 @@ Avoid raising the configured limits above Tenrai’s published maximums. The def
 
 ### Plex requests the extras endpoint
 
-Plex may probe `/extras` during a metadata refresh even though this provider does not supply trailers or other extras. The provider returns a valid empty metadata container with HTTP `200`; this is normal.
+Plex may probe `/extras` during a metadata refresh even though this provider does not supply remote trailers or other provider-hosted extras. The provider returns a valid empty metadata container with HTTP `200`; this is normal.
 
-Local TV extras are a separate scanner-level feature. In testing, files placed under supported folders such as:
+Local files are handled separately by Plex Local Media.
+
+To enable local show extras:
+
+1. Open **Settings → Metadata Agents**.
+2. Edit the metadata-agent configuration that uses this MyAnimeList provider.
+3. Keep **MyAnimeList Plex Metadata Provider** as the primary provider.
+4. Add **Plex Local Media** as a secondary provider beneath it.
+5. Save the configuration.
+6. Scan the library and refresh the affected show.
+
+Supported show-level folders include:
 
 ```text
-Shorts
-Other
-Trailers
-Interviews
+Behind The Scenes
+Deleted Scenes
 Featurettes
+Interviews
+Scenes
+Shorts
+Trailers
+Other
 ```
 
-were not reliably detected when the MyAnimeList provider was used as the primary metadata agent, even with simple filenames and documented folder placement.
-
-Adding Plex Personal Media or Plex Local Media as a secondary provider does not correct this because secondary providers cannot create items that Plex’s scanner has already ignored.
-
-For files that must appear in Plex, use one of these approaches:
+Place these folders directly inside the series folder:
 
 ```text
-Specials\Show Name - S00E01 - Creditless Opening.mkv
+Show Name/
+├── Season 01/
+├── Shorts/
+│   ├── Creditless Opening.mkv
+│   └── [Release Group] Show Name - NCED (BD 1080p).mkv
+└── Other/
+    └── Disc Bonus.mkv
 ```
 
-or create Plex-compatible hardlinks while keeping the original anime filenames unchanged.
+The filenames inside these folders do not need Plex episode numbering. Original anime release filenames and simple descriptive filenames both work.
+
+The `Specials` folder is different. Files placed there are scanned as normal Season 0 episodes and should use Plex episode naming:
+
+```text
+Specials/
+└── Show Name - S00E01 - OVA.mkv
+```
 
 
 ---
