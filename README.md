@@ -15,8 +15,7 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 
 - MyAnimeList anime search and matching
 - Default, English, or Japanese series titles
-- Original Japanese series title where supported by Plex
-- Anime synopsis
+- Series synopsis
 - MAL score
 - Release date and year
 - Content rating
@@ -25,26 +24,20 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 - Episode synopses when available
 - Episode scores converted from MAL’s 5-point scale to Plex’s 10-point scale
 - Episode air dates
-- Episode runtime
 - Genres
 - Themes
 - Demographics
-- Studios
 - Japanese voice actors preferred by default
 - Fallback voice actors when Japanese cast data is unavailable
 - Character or voice-actor profile images
-- Director, writer, and producer credits where available
 - Default MAL poster
 - Additional MAL posters in the Plex artwork picker
 - MAL poster assigned as Plex Square Art
-- Background artwork disabled by default
 - User-editable settings
-- Standalone Windows executable
 - One-click Windows installation
 - Automatic startup using Windows Task Scheduler
 - Provider health checks and logging
-- Plex Local Media integration for local openings, endings, trailers, and other extras
-- Client-side Tenrai API rate limiting and automatic HTTP 429 retries
+- Client-side Tenrai API rate limiting
 
 ---
 
