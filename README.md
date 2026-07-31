@@ -56,16 +56,11 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 - Extras placed in supported folders such as `Shorts`, `Other`, `Trailers`, `Interviews`, or `Featurettes` are treated as local extras rather than normal episodes.
 - Files inside local-extra folders do not need `S00E##` names; descriptive or original filenames are acceptable.
 - The provider’s `/extras` endpoint intentionally returns an empty container. Remote YouTube trailers and other provider-supplied extras are not currently supported.
-- Only files intended to appear as normal Plex **Specials** episodes need `S00E##` naming. Files in other supported extras folders do not.
 - MyAnimeList usually treats each sequel or season as a separate anime entry, while Plex normally groups seasons under one show. This provider follows the MyAnimeList model.
 - Openings, endings, creditless videos, interviews, and disc bonuses usually have no corresponding MyAnimeList episode record.
 - Plex may generate unrelated recommendations under Related Shows.
-- Existing artwork can remain cached after provider changes.
 - MyAnimeList does not provide purpose-built Plex Square Art, so the default poster is reused.
 - Staff-role names do not always map cleanly to Plex’s Director, Writer, and Producer fields.
-- Original Japanese titles may not be displayed by every Plex client.
-- The provider currently targets TV and anime libraries rather than movie libraries.
-
 
 ---
 
