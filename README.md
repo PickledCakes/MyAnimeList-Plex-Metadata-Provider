@@ -63,7 +63,6 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 - MyAnimeList does not provide purpose-built Plex Square Art, so the default poster is reused.
 - Staff-role names do not always map cleanly to Plex’s Director, Writer, and Producer fields.
 - Original Japanese titles may not be displayed by every Plex client.
-- The provider currently targets TV and anime libraries rather than movie libraries.
 
 
 ---
