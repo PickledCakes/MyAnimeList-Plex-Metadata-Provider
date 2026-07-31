@@ -47,6 +47,30 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 
 ---
 
+## Known limitations
+
+- Plex Custom Metadata Provider support is still evolving, and behaviour can differ between Plex clients.
+- Ratings from custom providers can display correctly but may remain unavailable for library sorting.
+- Local TV extras are not reliably detected when this provider is used as the primary metadata agent.
+- Plex may ignore `Shorts`, `Other`, `Trailers`, and similar local-extra folders even when their structure follows Plex’s documented naming rules.
+- Adding Plex Personal Media or Plex Local Media as a secondary provider does not make ignored extra files appear, because file discovery happens before metadata providers are applied.
+- The provider’s `/extras` endpoint intentionally returns an empty container. Remote YouTube trailers and other provider-supplied extras are not currently supported.
+- Files that must appear in Plex should be named as normal episodes or specials, such as `S00E01`, or exposed through Plex-compatible hardlinks.
+- MyAnimeList usually treats each sequel or season as a separate anime entry, while Plex normally groups seasons under one show. This provider follows the MyAnimeList model.
+- Openings, endings, creditless videos, interviews, and disc bonuses usually have no corresponding MyAnimeList episode record.
+- Plex may generate unrelated recommendations under Related Shows.
+- Existing artwork can remain cached after provider changes.
+- MyAnimeList does not provide purpose-built Plex Square Art, so the default poster is reused.
+- Staff-role names do not always map cleanly to Plex’s Director, Writer, and Producer fields.
+- Original Japanese titles may not be displayed by every Plex client.
+- The provider currently targets TV and anime libraries rather than movie libraries.
+
+
+---
+
+
+---
+
 ## Credits
 
 This project was inspired by the original:
@@ -599,6 +623,29 @@ Avoid raising the configured limits above Tenrai’s published maximums. The def
 
 Plex may probe `/extras` during a metadata refresh even though this provider does not supply trailers or other extras. The provider returns a valid empty metadata container with HTTP `200`; this is normal.
 
+Local TV extras are a separate scanner-level feature. In testing, files placed under supported folders such as:
+
+```text
+Shorts
+Other
+Trailers
+Interviews
+Featurettes
+```
+
+were not reliably detected when the MyAnimeList provider was used as the primary metadata agent, even with simple filenames and documented folder placement.
+
+Adding Plex Personal Media or Plex Local Media as a secondary provider does not correct this because secondary providers cannot create items that Plex’s scanner has already ignored.
+
+For files that must appear in Plex, use one of these approaches:
+
+```text
+Specials\Show Name - S00E01 - Creditless Opening.mkv
+```
+
+or create Plex-compatible hardlinks while keeping the original anime filenames unchanged.
+
+
 ---
 
 ### Plex cannot connect to the provider
@@ -704,13 +751,9 @@ A show appearing in that row does not necessarily mean that MyAnimeList identifi
 
 Plex handles custom-provider ratings differently from ratings supplied by Plex’s built-in metadata agents.
 
-The MAL rating may still work for:
+The MAL rating may still appear on series and episode detail pages, but Plex may not index custom-provider ratings for library sorting.
 
-- Series detail pages
-- Audience-rating sorting
-- Some Plex clients
-
-while not appearing on every browse card or client interface.
+Changing `rating_source` between TMDB and IMDb changes the displayed audience-rating icon only; it does not fix sorting.
 
 ---
 
@@ -728,18 +771,6 @@ Check `logs\provider.log` while refreshing the series.
 
 ---
 
-## Known limitations
-
-- Plex Custom Metadata Provider support is still evolving.
-- Ratings from custom providers may not appear on all library cards.
-- Ratings from custom providers may display but remain unavailable for library sorting.
-- Plex may generate unrelated recommendations under Related Shows.
-- Existing artwork can remain cached after provider changes.
-- MAL does not provide purpose-built Plex Square Art, so the default poster is reused.
-- Staff-role names do not always map cleanly to Plex’s Director, Writer, and Producer fields.
-- Different Plex clients may use artwork and rating fields differently.
-- Original Japanese titles may not be displayed by every Plex client.
-- The provider currently targets TV and anime libraries rather than movie libraries.
 
 ---
 
