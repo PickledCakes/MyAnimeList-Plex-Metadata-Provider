@@ -43,6 +43,7 @@ Metadata is retrieved from MyAnimeList-compatible data supplied through the Tenr
 - One-click Windows installation
 - Automatic startup using Windows Task Scheduler
 - Provider health checks and logging
+- Client-side Tenrai API rate limiting and automatic HTTP 429 retries
 
 ---
 
@@ -249,6 +250,19 @@ MAL staff positions are not always standardised. Some people may not be imported
 | `episode_synopsis_fallback_requests` | `false` | `true`, `false` | When enabled, requests each individual episode if the paginated episode record has no synopsis. This is disabled by default because Tenrai normally includes synopsis text in the episode list. |
 | `include_episode_scores` | `true` | `true`, `false` | Imports MAL episode scores. MAL’s 5-point value is doubled before being sent to Plex’s 10-point rating field. |
 
+### Tenrai API rate-limit settings
+
+| Setting | Default | Accepted values | Description |
+|---|---:|---|---|
+| `tenrai_requests_per_second` | `3` | `1`–`4` | Maximum Tenrai requests started per second across all provider threads. |
+| `tenrai_requests_per_minute` | `90` | `1`–`120` | Rolling one-minute request limit. The conservative default leaves room below Tenrai’s public limit. |
+| `tenrai_retry_attempts` | `3` | `0`–`10` | Number of retries after HTTP 429 responses or temporary connection failures. |
+| `tenrai_retry_default_seconds` | `30` | `1`–`300` | Wait time used when Tenrai returns HTTP 429 without a valid `Retry-After` header. |
+| `tenrai_retry_temporary_403` | `true` | `true`, `false` | Treats likely temporary HTTP 403 responses as an IP cooldown or edge-rate-limit response and retries them. |
+| `tenrai_retry_forbidden_seconds` | `60` | `1`–`600` | Default wait for a temporary HTTP 403 when no valid `Retry-After` header is supplied. |
+
+The limiter is global and thread-safe, so simultaneous Plex refresh requests share the same request budget. When Tenrai returns HTTP `429`, the provider honors `Retry-After` when supplied and pauses before retrying. Likely temporary HTTP `403` responses are also logged with a compact response-body preview and retried using a longer cooldown.
+
 ### Artwork settings
 
 | Setting | Default | Accepted values | Description |
@@ -272,7 +286,7 @@ The MAL poster is vertical rather than square. Plex controls how the image is cr
 
 | Setting | Default | Accepted values | Description |
 |---|---:|---|---|
-| `rating_source` | `"tmdb"` | `"tmdb"`, `"imdb"` | Selects which Plex rating badge is displayed beside the MAL score. The numeric rating still comes from MyAnimeList. |
+| `rating_source` | `"tmdb"` | `"tmdb"`, `"imdb"` | Selects one audience-rating icon for both series and episode MAL scores. The numeric rating still comes from MyAnimeList. |
 
 For example:
 
@@ -280,7 +294,7 @@ For example:
 "rating_source": "tmdb"
 ```
 
-This causes Plex to display the MAL score using Plex’s TMDB-style rating badge.
+This causes Plex to display both series and episode MAL scores using Plex’s TMDB-style audience-rating badge.
 
 The score itself still comes from MyAnimeList.
 
@@ -309,7 +323,13 @@ The score itself still comes from MyAnimeList.
   "include_additional_posters": true,
   "poster_as_square_art": true,
   "include_background": false,
-  "rating_source": "tmdb"
+  "rating_source": "tmdb",
+  "tenrai_requests_per_second": 3,
+  "tenrai_requests_per_minute": 90,
+  "tenrai_retry_attempts": 3,
+  "tenrai_retry_default_seconds": 30,
+  "tenrai_retry_temporary_403": true,
+  "tenrai_retry_forbidden_seconds": 60
 }
 ```
 
@@ -546,6 +566,41 @@ dist\MALPlexProvider.exe
 
 ## Troubleshooting
 
+### Tenrai returns HTTP 403
+
+A Tenrai `403` can indicate a temporary IP-level block or edge-rate-limit response rather than a normal application error.
+
+The provider now:
+
+- logs a compact response-body preview;
+- records useful headers such as `Server`, `Content-Type`, and `Retry-After`;
+- retries likely temporary `403` responses;
+- waits 60 seconds by default between retries;
+- returns HTTP `503` to Plex for temporary upstream failures instead of a generic `500`.
+
+When the log says the IP is temporarily refused, stop refreshing and allow the cooldown to expire.
+
+---
+
+### Tenrai reports that the rate limit was exceeded
+
+The provider automatically limits outgoing Tenrai requests and retries HTTP `429` responses. Check the log for entries such as:
+
+```text
+Tenrai client rate limiter waiting
+Tenrai returned HTTP 429; waiting
+```
+
+Avoid raising the configured limits above Tenrai’s published maximums. The defaults of `3` requests per second and `90` requests per minute are intentionally conservative.
+
+---
+
+### Plex requests the extras endpoint
+
+Plex may probe `/extras` during a metadata refresh even though this provider does not supply trailers or other extras. The provider returns a valid empty metadata container with HTTP `200`; this is normal.
+
+---
+
 ### Plex cannot connect to the provider
 
 Check:
@@ -677,6 +732,7 @@ Check `logs\provider.log` while refreshing the series.
 
 - Plex Custom Metadata Provider support is still evolving.
 - Ratings from custom providers may not appear on all library cards.
+- Ratings from custom providers may display but remain unavailable for library sorting.
 - Plex may generate unrelated recommendations under Related Shows.
 - Existing artwork can remain cached after provider changes.
 - MAL does not provide purpose-built Plex Square Art, so the default poster is reused.

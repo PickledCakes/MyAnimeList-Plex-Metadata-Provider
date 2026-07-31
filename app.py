@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 import re
 import sys
 from datetime import datetime, timezone
@@ -15,7 +17,7 @@ from waitress import serve
 
 PROVIDER_ID = "tv.plex.agents.custom.pickledcakes.myanimelist.tv"
 PROVIDER_TITLE = "MyAnimeList via Tenrai (PoC)"
-VERSION = "1.7.1"
+VERSION = "1.7.4"
 ROOT_PATH = "/tv"
 
 
@@ -77,6 +79,12 @@ SETTINGS = load_json_file("settings.json", {
     "poster_as_square_art": True,
     "include_background": False,
     "rating_source": "tmdb",
+    "tenrai_requests_per_second": 3,
+    "tenrai_requests_per_minute": 90,
+    "tenrai_retry_attempts": 3,
+    "tenrai_retry_default_seconds": 30,
+    "tenrai_retry_forbidden_seconds": 60,
+    "tenrai_retry_temporary_403": True,
 })
 
 API_BASE = str(CONFIG.get("api_base", "https://api.tenrai.org/v1")).rstrip("/")
@@ -105,6 +113,32 @@ POSTER_AS_SQUARE_ART = bool_setting(SETTINGS.get("poster_as_square_art"), True)
 INCLUDE_BACKGROUND = bool_setting(SETTINGS.get("include_background"), False)
 RATING_SOURCE = str(SETTINGS.get("rating_source", "tmdb")).strip().casefold()
 
+def int_setting(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+TENRAI_REQUESTS_PER_SECOND = int_setting(
+    SETTINGS.get("tenrai_requests_per_second"), 3, 1, 4
+)
+TENRAI_REQUESTS_PER_MINUTE = int_setting(
+    SETTINGS.get("tenrai_requests_per_minute"), 90, 1, 120
+)
+TENRAI_RETRY_ATTEMPTS = int_setting(
+    SETTINGS.get("tenrai_retry_attempts"), 3, 0, 10
+)
+TENRAI_RETRY_DEFAULT_SECONDS = int_setting(
+    SETTINGS.get("tenrai_retry_default_seconds"), 30, 1, 300
+)
+TENRAI_RETRY_FORBIDDEN_SECONDS = int_setting(
+    SETTINGS.get("tenrai_retry_forbidden_seconds"), 60, 1, 600
+)
+TENRAI_RETRY_TEMPORARY_403 = bool_setting(
+    SETTINGS.get("tenrai_retry_temporary_403"), True
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -115,6 +149,53 @@ logging.basicConfig(
 )
 log = logging.getLogger("mal-provider")
 app = Flask(__name__)
+class TenraiRateLimiter:
+    """Thread-safe rolling-window limiter shared by every provider request."""
+
+    def __init__(self, per_second: int, per_minute: int) -> None:
+        self.per_second = per_second
+        self.per_minute = per_minute
+        self._timestamps: list[float] = []
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        while True:
+            sleep_for = 0.0
+            with self._lock:
+                now = time.monotonic()
+                self._timestamps = [
+                    timestamp
+                    for timestamp in self._timestamps
+                    if now - timestamp < 60.0
+                ]
+
+                second_window = [
+                    timestamp
+                    for timestamp in self._timestamps
+                    if now - timestamp < 1.0
+                ]
+
+                waits: list[float] = []
+                if len(second_window) >= self.per_second:
+                    waits.append(1.0 - (now - second_window[0]))
+                if len(self._timestamps) >= self.per_minute:
+                    waits.append(60.0 - (now - self._timestamps[0]))
+
+                if waits:
+                    sleep_for = max(0.01, max(waits))
+                else:
+                    self._timestamps.append(now)
+                    return
+
+            log.debug("Tenrai client rate limiter waiting %.2f second(s)", sleep_for)
+            time.sleep(sleep_for)
+
+
+TENRAI_RATE_LIMITER = TenraiRateLimiter(
+    TENRAI_REQUESTS_PER_SECOND,
+    TENRAI_REQUESTS_PER_MINUTE,
+)
+
 session = requests.Session()
 session.headers.update({"User-Agent": f"MAL-Plex-Provider/{VERSION}"})
 EPISODE_DETAIL_CACHE: dict[tuple[int, int], dict[str, Any]] = {}
@@ -124,20 +205,173 @@ class ProviderError(RuntimeError):
     pass
 
 
+def safe_response_preview(response: requests.Response, limit: int = 500) -> str:
+    """Return a compact, log-safe response preview for diagnostics."""
+    try:
+        body = response.text or ""
+    except Exception:
+        return "<unreadable response body>"
+
+    body = " ".join(body.split())
+    if not body:
+        return "<empty response body>"
+    if len(body) > limit:
+        return body[:limit] + "..."
+    return body
+
+
+def retry_after_seconds(
+    response: requests.Response,
+    default_seconds: int,
+    maximum_seconds: int = 600,
+) -> float:
+    value = response.headers.get("Retry-After")
+    try:
+        seconds = float(value) if value else float(default_seconds)
+    except (TypeError, ValueError):
+        seconds = float(default_seconds)
+    return max(1.0, min(seconds, float(maximum_seconds)))
+
+
+def is_temporary_forbidden(response: requests.Response) -> bool:
+    """Identify 403 responses that look like rate limiting or an IP cooldown."""
+    if response.status_code != 403:
+        return False
+
+    if response.headers.get("Retry-After"):
+        return True
+
+    preview = safe_response_preview(response).casefold()
+    markers = (
+        "rate limit",
+        "too many requests",
+        "temporarily blocked",
+        "temporary block",
+        "access temporarily denied",
+        "try again later",
+        "cooldown",
+        "cloudflare",
+        "forbidden",
+    )
+    return any(marker in preview for marker in markers)
+
+
 def api_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     url = f"{API_BASE}{path}"
-    log.info("Tenrai GET %s params=%s", url, params)
-    try:
-        response = session.get(url, params=params, timeout=TIMEOUT)
-        response.raise_for_status()
-        payload = response.json()
-    except requests.RequestException as exc:
-        raise ProviderError(f"Tenrai request failed: {exc}") from exc
-    except ValueError as exc:
-        raise ProviderError("Tenrai returned invalid JSON") from exc
-    if not isinstance(payload, dict):
-        raise ProviderError("Tenrai returned an unexpected response")
-    return payload
+    last_error: Exception | None = None
+
+    for attempt in range(TENRAI_RETRY_ATTEMPTS + 1):
+        TENRAI_RATE_LIMITER.wait()
+
+        try:
+            log.info("Tenrai GET %s", url)
+            response = session.get(url, params=params, timeout=30)
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt >= TENRAI_RETRY_ATTEMPTS:
+                raise ProviderError(f"Tenrai request failed: {exc}") from exc
+
+            delay = min(2 ** attempt, 10)
+            log.warning(
+                "Tenrai connection error; retrying in %s second(s) (%s/%s): %s",
+                delay,
+                attempt + 1,
+                TENRAI_RETRY_ATTEMPTS,
+                exc,
+            )
+            time.sleep(delay)
+            continue
+
+        log.info("Tenrai status %s for %s", response.status_code, response.url)
+
+        if response.status_code == 429:
+            retry_after = retry_after_seconds(
+                response,
+                TENRAI_RETRY_DEFAULT_SECONDS,
+                600,
+            )
+            preview = safe_response_preview(response)
+            log.warning(
+                "Tenrai HTTP 429 response: %s | Retry-After=%r",
+                preview,
+                response.headers.get("Retry-After"),
+            )
+
+            if attempt >= TENRAI_RETRY_ATTEMPTS:
+                raise ProviderError(
+                    f"Tenrai rate limit exceeded after {attempt + 1} attempt(s). "
+                    f"Retry after approximately {retry_after:g} second(s)."
+                )
+
+            log.warning(
+                "Tenrai returned HTTP 429; waiting %.1f second(s) before retry (%s/%s)",
+                retry_after,
+                attempt + 1,
+                TENRAI_RETRY_ATTEMPTS,
+            )
+            time.sleep(retry_after)
+            continue
+
+        if (
+            response.status_code == 403
+            and TENRAI_RETRY_TEMPORARY_403
+            and is_temporary_forbidden(response)
+        ):
+            retry_after = retry_after_seconds(
+                response,
+                TENRAI_RETRY_FORBIDDEN_SECONDS,
+                600,
+            )
+            preview = safe_response_preview(response)
+            log.warning(
+                "Tenrai HTTP 403 may be a temporary IP block or edge-rate-limit response. "
+                "Body: %s | Server=%r | Retry-After=%r",
+                preview,
+                response.headers.get("Server"),
+                response.headers.get("Retry-After"),
+            )
+
+            if attempt >= TENRAI_RETRY_ATTEMPTS:
+                raise ProviderError(
+                    "Tenrai temporarily refused this IP with HTTP 403 after "
+                    f"{attempt + 1} attempt(s). Stop refreshing and try again later."
+                )
+
+            log.warning(
+                "Waiting %.1f second(s) before retrying temporary HTTP 403 (%s/%s)",
+                retry_after,
+                attempt + 1,
+                TENRAI_RETRY_ATTEMPTS,
+            )
+            time.sleep(retry_after)
+            continue
+
+        if response.status_code >= 400:
+            preview = safe_response_preview(response)
+            log.error(
+                "Tenrai HTTP %s response body: %s | Content-Type=%r | Server=%r",
+                response.status_code,
+                preview,
+                response.headers.get("Content-Type"),
+                response.headers.get("Server"),
+            )
+            raise ProviderError(
+                f"Tenrai returned HTTP {response.status_code} for {response.url}"
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            preview = safe_response_preview(response)
+            log.error("Tenrai returned invalid JSON: %s", preview)
+            raise ProviderError("Tenrai returned invalid JSON") from exc
+
+        if not isinstance(payload, dict):
+            raise ProviderError("Tenrai returned an unexpected response")
+
+        return payload
+
+    raise ProviderError(f"Tenrai request failed: {last_error or 'unknown error'}")
 
 
 def first_data(payload: dict[str, Any]) -> dict[str, Any]:
@@ -337,8 +571,25 @@ def show_metadata(anime: dict[str, Any], include_children: bool = False, include
     }
     score = anime.get("score")
     if score is not None:
-        item["Rating"] = [{"image": rating_image(), "type": "audience", "value": float(score)}]
-    item = {k: v for k, v in item.items() if v is not None}
+        try:
+            score_value = float(score)
+        except (TypeError, ValueError):
+            score_value = None
+
+        if score_value is not None:
+            rating_image = (
+                "imdb://image.rating"
+                if RATING_SOURCE == "imdb"
+                else "themoviedb://image.rating"
+            )
+            item["Rating"] = [
+                {
+                    "type": "audience",
+                    "value": score_value,
+                    "image": rating_image,
+                }
+            ]
+
     if include_credits and (INCLUDE_CAST or INCLUDE_DIRECTORS or INCLUDE_WRITERS or INCLUDE_PRODUCERS):
         credits = get_show_credits(mal_id)
         enabled_fields = {
@@ -657,6 +908,18 @@ def parse_key(key: str) -> tuple[str, int, int | None, int | None]:
     raise ProviderError(f"Unknown rating key: {key}")
 
 
+@app.errorhandler(ProviderError)
+def handle_provider_error(exc: ProviderError):
+    message = str(exc)
+    status = 503 if (
+        "rate limit" in message.casefold()
+        or "temporarily refused" in message.casefold()
+        or "request failed" in message.casefold()
+    ) else 502
+    log.warning("Provider error returned to Plex as HTTP %s: %s", status, message)
+    return jsonify({"error": message}), status
+
+
 @app.before_request
 def log_request() -> None:
     log.info("%s %s body=%s", request.method, request.full_path, request.get_json(silent=True))
@@ -796,19 +1059,9 @@ def grandchildren(rating_key: str):
 @app.get("/tv/tv/library/metadata/<rating_key>/extras")
 @app.get(f"{ROOT_PATH}/library/metadata/<rating_key>/extras")
 def extras(rating_key: str):
-    # Plex currently probes this endpoint, but public custom-provider guidance
-    # says remote extras are not yet officially supported. Return Tenrai trailer
-    # candidates experimentally so future PMS versions can consume them without
-    # another provider update.
-    try:
-        kind, mal_id, _, _ = parse_key(rating_key)
-        if kind != "show":
-            return jsonify(metadata_container([]))
-        items = get_experimental_trailers(mal_id)
-        log.info("Experimental extras for MAL %s: %d candidate(s)", mal_id, len(items))
-        return jsonify(metadata_container(items))
-    except ProviderError as exc:
-        return jsonify({"error": str(exc)}), 404
+    # Plex probes this endpoint during metadata refresh. Remote YouTube extras
+    # are not supported here, so return a valid empty metadata container.
+    return jsonify(metadata_container([]))
 
 
 @app.get("/library/metadata/<rating_key>/images")
@@ -872,5 +1125,16 @@ if __name__ == "__main__":
     log.info("Genres=%s Themes=%s Demographics=%s Studios=%s", INCLUDE_GENRES, INCLUDE_THEMES, INCLUDE_DEMOGRAPHICS, INCLUDE_STUDIOS)
     log.info("Episode titles=%s | Synopses=%s | Fallback requests=%s | Scores=%s", EPISODE_TITLE_LANGUAGE, INCLUDE_EPISODE_SYNOPSES, EPISODE_SYNOPSIS_FALLBACK_REQUESTS, INCLUDE_EPISODE_SCORES)
     log.info("Additional posters=%s", INCLUDE_ADDITIONAL_PICTURES)
+    log.info("Rating source=%s", RATING_SOURCE)
     log.info("Square art from poster=%s | Background=%s | Rating badge=%s", POSTER_AS_SQUARE_ART, INCLUDE_BACKGROUND, RATING_SOURCE)
+    log.info(
+        "Tenrai client limits=%s/sec, %s/min | retries=%s | "
+        "429 default wait=%ss | temporary 403 retry=%s (%ss)",
+        TENRAI_REQUESTS_PER_SECOND,
+        TENRAI_REQUESTS_PER_MINUTE,
+        TENRAI_RETRY_ATTEMPTS,
+        TENRAI_RETRY_DEFAULT_SECONDS,
+        TENRAI_RETRY_TEMPORARY_403,
+        TENRAI_RETRY_FORBIDDEN_SECONDS,
+    )
     serve(app, host="0.0.0.0", port=PORT, threads=8)

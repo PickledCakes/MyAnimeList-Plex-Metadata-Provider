@@ -18,5 +18,11 @@
   "include_additional_posters": true,
   "poster_as_square_art": true,
   "include_background": false,
-  "rating_source": "tmdb"
+  "rating_source": "tmdb",
+  "tenrai_requests_per_second": 3,
+  "tenrai_requests_per_minute": 90,
+  "tenrai_retry_attempts": 3,
+  "tenrai_retry_default_seconds": 30,
+  "tenrai_retry_temporary_403": true,
+  "tenrai_retry_forbidden_seconds": 60
 }
